@@ -1,0 +1,33 @@
+From 25bdbadf9722017fdc30269909cd2066cb03d754 Mon Sep 17 00:00:00 2001
+From: Gabriel <gabryelfs@gmail.com>
+Date: Tue, 9 Jun 2026 16:49:44 -0300
+Subject: [PATCH] patch(05): pin base image to
+ node:22.12-alpine@sha256:513c40e...
+
+Digest resolved via 'docker manifest inspect node:22.12-alpine' on 2026-06-09.
+Applies to both builder and runtime stages.
+Prevents silent supply-chain drift from mutable floating tag.
+
+diff --git a/Dockerfile b/Dockerfile
+index 6e6df15..82e66d4 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -1,4 +1,5 @@
+-FROM node:22-alpine AS builder
++# Patch 05: pinned base image digest — prevents floating-tag supply chain drift
++FROM node:22.12-alpine@sha256:513c40ed37f6a5b7200de0a9a18e963d8c049c0427bbc9e4fc5cd16ef8881114 AS builder
+ 
+ WORKDIR /app
+ COPY package.json package-lock.json ./
+@@ -7,7 +8,7 @@ COPY tsconfig.json ./
+ COPY src/ ./src/
+ RUN npm run build
+ 
+-FROM node:22-alpine AS runtime
++FROM node:22.12-alpine@sha256:513c40ed37f6a5b7200de0a9a18e963d8c049c0427bbc9e4fc5cd16ef8881114 AS runtime
+ 
+ WORKDIR /app
+ COPY --from=builder /app/dist ./dist
+-- 
+2.53.0
+

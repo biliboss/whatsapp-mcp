@@ -1,0 +1,191 @@
+From 5d8b7907e632df1033667dc77886e2a78895d6e1 Mon Sep 17 00:00:00 2001
+From: Gabriel <gabryelfs@gmail.com>
+Date: Tue, 9 Jun 2026 16:48:11 -0300
+Subject: [PATCH] patch(03): AES-GCM session encryption at rest for Signal
+ protocol keys
+
+Pattern copied from Malaccamaxgit/whatsapp-mcp-docker src/security/crypto.ts
+(inspected 2026-06-09: pure node:crypto, no telemetry, no external imports).
+Adapted: env var = SESSION_ENCRYPTION_KEY, KDF salt updated for this fork.
+
+- src/utils/crypto.ts: AES-256-GCM + scrypt KDF helper (standalone, copy-deletable)
+- baileys.auth.ts: encrypt() on write, decrypt() on read for all Signal keys + creds
+- index.ts: initEncryption() at boot; warns (not fatal) if key absent to allow
+  first-boot migration path
+
+Plaintext 'enc:'-prefixed detection means existing plaintext rows still readable.
+
+diff --git a/src/channels/baileys/baileys.auth.ts b/src/channels/baileys/baileys.auth.ts
+index dfebc57..7ed0901 100644
+--- a/src/channels/baileys/baileys.auth.ts
++++ b/src/channels/baileys/baileys.auth.ts
+@@ -14,6 +14,8 @@ import { initAuthCreds, BufferJSON } from "@whiskeysockets/baileys";
+ import { eq, and } from "drizzle-orm";
+ import { db } from "../../db/client.js";
+ import { authKeys } from "../../db/schema.js";
++// Patch 03: AES-GCM field-level encryption for Signal protocol keys at rest
++import { encrypt, decrypt } from "../../utils/crypto.js";
+ 
+ const CREDS_KEY = "creds";
+ 
+@@ -32,15 +34,19 @@ export async function useSqliteAuthState(
+       .from(authKeys)
+       .where(and(eq(authKeys.instanceId, instanceId), eq(authKeys.keyId, key)))
+       .get();
+-    return row?.keyData ?? null;
++    if (!row?.keyData) return null;
++    // Patch 03: decrypt on read (no-op if encryption not enabled or value unencrypted)
++    return decrypt(row.keyData);
+   };
+ 
+   const writeData = async (key: string, data: string): Promise<void> => {
++    // Patch 03: encrypt on write when SESSION_ENCRYPTION_KEY is set
++    const storedData = encrypt(data);
+     db.insert(authKeys)
+-      .values({ instanceId, keyId: key, keyData: data })
++      .values({ instanceId, keyId: key, keyData: storedData })
+       .onConflictDoUpdate({
+         target: [authKeys.instanceId, authKeys.keyId],
+-        set: { keyData: data },
++        set: { keyData: storedData },
+       })
+       .run();
+   };
+diff --git a/src/index.ts b/src/index.ts
+index 8dc8cfc..32bab46 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,6 +1,8 @@
+ import "dotenv/config";
+ import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+ import { timingSafeEqual } from "node:crypto";
++// Patch 03: AES-GCM session encryption
++import { initEncryption } from "./utils/crypto.js";
+ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+ import {
+@@ -285,6 +287,17 @@ async function main(): Promise<void> {
+     process.exit(1);
+   }
+ 
++  // Patch 03: initialize AES-GCM encryption for session keys at rest
++  const encKey = process.env.SESSION_ENCRYPTION_KEY;
++  if (encKey) {
++    const enabled = initEncryption(encKey);
++    if (enabled) {
++      logger.info("AES-256-GCM field encryption enabled for session keys");
++    }
++  } else {
++    logger.warn("SESSION_ENCRYPTION_KEY not set — session keys stored in plaintext. Set it before first pair.");
++  }
++
+   logger.info({ transport, version: VERSION }, "Starting WA MCP server");
+ 
+   if (transport === "stdio") {
+diff --git a/src/utils/crypto.ts b/src/utils/crypto.ts
+new file mode 100644
+index 0000000..5fd1897
+--- /dev/null
++++ b/src/utils/crypto.ts
+@@ -0,0 +1,98 @@
++/**
++ * Field-Level Encryption
++ *
++ * AES-256-GCM encryption for sensitive database fields.
++ * Opt-in via SESSION_ENCRYPTION_KEY env var.
++ * Values are prefixed with "enc:" so plaintext and encrypted
++ * values can coexist during migration.
++ *
++ * Key derivation: scrypt (N=2^14, r=8, p=1) with a fixed application salt.
++ * Using a fixed salt is intentional — this is deterministic key derivation
++ * from a passphrase, not password storage. scrypt's memory-hardness makes
++ * brute-force of the passphrase expensive even with a known salt.
++ *
++ * SOURCE: Pattern adapted from Malaccamaxgit/whatsapp-mcp-docker src/security/crypto.ts
++ * (inspected 2026-06-09 — pure node:crypto, no external imports, no telemetry).
++ * Adapted: env var renamed SESSION_ENCRYPTION_KEY, KDF salt updated for this fork.
++ */
++
++import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
++
++const ALGORITHM = "aes-256-gcm";
++const PREFIX = "enc:";
++const IV_LEN = 12;
++const TAG_LEN = 16;
++// Fixed application salt for deterministic key derivation (not password storage).
++const KDF_SALT = Buffer.from("wamcp-fonsecagabriel-kdf-v1");
++// N=2^14 (NIST minimum for interactive use): needs 16 MB, within Node default.
++const KDF_OPTS = { N: 1 << 14, r: 8, p: 1 };
++
++let _key: Buffer | null = null;
++
++/**
++ * Initialize encryption with a passphrase.
++ * Derives a 32-byte AES key using scrypt (memory-hard KDF).
++ * Call once at startup with SESSION_ENCRYPTION_KEY env var.
++ * Returns true if encryption is active.
++ */
++export function initEncryption(passphrase: string): boolean {
++  if (!passphrase) {
++    _key = null;
++    return false;
++  }
++  _key = scryptSync(passphrase, KDF_SALT, 32, KDF_OPTS);
++  return true;
++}
++
++export function isEncryptionEnabled(): boolean {
++  return _key !== null;
++}
++
++/**
++ * Encrypt a plaintext string. Returns prefixed ciphertext.
++ * Returns the original value unchanged if encryption is off or value is empty.
++ */
++export function encrypt(plaintext: string): string {
++  if (!_key || !plaintext) {
++    return plaintext;
++  }
++
++  const iv = randomBytes(IV_LEN);
++  const cipher = createCipheriv(ALGORITHM, _key, iv);
++  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
++  const tag = cipher.getAuthTag();
++
++  return PREFIX + Buffer.concat([iv, tag, encrypted]).toString("base64");
++}
++
++/**
++ * Decrypt a value. Detects the "enc:" prefix to distinguish
++ * encrypted values from legacy plaintext (allows gradual migration).
++ * Returns the original value if encryption is off or value is not encrypted.
++ */
++export function decrypt(value: string): string {
++  if (!value || typeof value !== "string" || !value.startsWith(PREFIX)) {
++    return value;
++  }
++  if (!_key) {
++    return value;
++  }
++
++  try {
++    const buf = Buffer.from(value.slice(PREFIX.length), "base64");
++    if (buf.length < IV_LEN + TAG_LEN + 1) {
++      return value;
++    }
++
++    const iv = buf.subarray(0, IV_LEN);
++    const tag = buf.subarray(IV_LEN, IV_LEN + TAG_LEN);
++    const data = buf.subarray(IV_LEN + TAG_LEN);
++
++    const decipher = createDecipheriv(ALGORITHM, _key, iv);
++    decipher.setAuthTag(tag);
++    return decipher.update(data) + decipher.final("utf8");
++  } catch (e) {
++    // Return raw value on decryption failure rather than crashing
++    return value;
++  }
++}
+-- 
+2.53.0
+

@@ -1,0 +1,34 @@
+From 7b92075f7dcf71d5dfcca9a7e0cacab5b1654e3f Mon Sep 17 00:00:00 2001
+From: Gabriel <gabryelfs@gmail.com>
+Date: Tue, 9 Jun 2026 16:49:59 -0300
+Subject: [PATCH] patch(06): bind HTTP server to 127.0.0.1 by default (not
+ 0.0.0.0)
+
+Defense-in-depth: Kamal port: '127.0.0.1:9999:3000' also binds loopback,
+but in-container bind ensures zero exposure even if Kamal config drifts.
+Override via WA_MCP_HOST env if 0.0.0.0 needed (local dev only).
+
+diff --git a/src/index.ts b/src/index.ts
+index 32bab46..37e56f8 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -264,10 +264,13 @@ async function startHttp(): Promise<void> {
+     res.end(JSON.stringify({ error: "Not found" }));
+   });
+ 
+-  httpServer.listen(port, () => {
++  // Patch 06: bind to 127.0.0.1 (loopback) not 0.0.0.0 — defense-in-depth
++  // WA_MCP_HOST env override allowed (e.g. 0.0.0.0 for local dev), default loopback.
++  const host = process.env.WA_MCP_HOST ?? "127.0.0.1";
++  httpServer.listen(port, host, () => {
+     logger.info(
+-      { port, transport: "http", version: VERSION },
+-      `${SERVER_NAME} started on port ${port}`,
++      { port, host, transport: "http", version: VERSION },
++      `${SERVER_NAME} started on ${host}:${port}`,
+     );
+   });
+ }
+-- 
+2.53.0
+

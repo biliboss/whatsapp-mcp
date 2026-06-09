@@ -1,0 +1,47 @@
+From c1ced0f50d97a8611f7a0e1f653136f0dd293cf3 Mon Sep 17 00:00:00 2001
+From: Gabriel <gabryelfs@gmail.com>
+Date: Tue, 9 Jun 2026 16:46:53 -0300
+Subject: [PATCH] =?UTF-8?q?patch(01):=20fail-closed=20auth=20=E2=80=94=20W?=
+ =?UTF-8?q?A=5FMCP=5FAPI=5FKEY=20required,=20exits=20on=20boot=20if=20unse?=
+ =?UTF-8?q?t?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Before: if (!apiKey) return true; // No key configured, allow
+After:  process.exit(1) at startup + checkApiKey throws fatal if still missing
+
+Prevents silent open-door when env misconfigured in prod.
+
+diff --git a/src/index.ts b/src/index.ts
+index efef67f..8dc8cfc 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -38,7 +38,10 @@ function verifyApiKey(provided: string, expected: string): boolean {
+ /** Check API key from request headers. Returns true if valid, or no key is configured. */
+ function checkApiKey(req: IncomingMessage, res: ServerResponse): boolean {
+   const apiKey = process.env.WA_MCP_API_KEY;
+-  if (!apiKey) return true; // No key configured, allow
++  if (!apiKey) {
++    logger.fatal("WA_MCP_API_KEY is not set — refusing to start in open mode. Set a strong API key.");
++    process.exit(1);
++  }
+ 
+   const authHeader = req.headers.authorization;
+   const apiKeyHeader = req.headers["x-api-key"] as string | undefined;
+@@ -276,6 +279,12 @@ async function startStdio(): Promise<void> {
+ }
+ 
+ async function main(): Promise<void> {
++  // Patch 01: fail-closed — require WA_MCP_API_KEY at startup
++  if (!process.env.WA_MCP_API_KEY && transport !== "stdio") {
++    logger.fatal("WA_MCP_API_KEY environment variable is required. Refusing to start without it.");
++    process.exit(1);
++  }
++
+   logger.info({ transport, version: VERSION }, "Starting WA MCP server");
+ 
+   if (transport === "stdio") {
+-- 
+2.53.0
+

@@ -1,0 +1,47 @@
+From ab9277dcaadcd51e9c07ce9a72425cdaf5138bbd Mon Sep 17 00:00:00 2001
+From: Gabriel <gabryelfs@gmail.com>
+Date: Tue, 9 Jun 2026 16:50:21 -0300
+Subject: [PATCH] =?UTF-8?q?patch(08):=20env-flag=20Cloud=20API=20channel?=
+ =?UTF-8?q?=20=E2=80=94=20DISABLE=5FCLOUD=5FAPI=3D1=20by=20default?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Decision: env-flag (not delete). Cloud API imports are static TypeScript top-level;
+deleting the module would require touching instance-manager.ts + schema.ts cloud fields.
+Env-flag skips all webhook routing at runtime — zero graph.facebook.com egress.
+DISABLE_CLOUD_API=0 re-enables if ever needed. Code stays auditable in tree.
+
+diff --git a/src/index.ts b/src/index.ts
+index 37e56f8..e8f529c 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -17,9 +17,14 @@ import { InstanceManager } from "./services/instance-manager.js";
+ import { MessageQueue } from "./services/message-queue.js";
+ import { MaintenanceService } from "./services/maintenance.js";
+ import { createMcpServer } from "./server/mcp.js";
++// Patch 08: Cloud API channel — guarded by DISABLE_CLOUD_API env (default "1" = disabled)
++// Cloud API module is kept in tree but all webhook routing is skipped when disabled.
++// This eliminates graph.facebook.com egress at runtime. Set DISABLE_CLOUD_API=0 to re-enable.
+ import { verifyWebhookSignature } from "./channels/cloud-api/cloud.auth.js";
+ import { normalizeWebhookPayload } from "./channels/cloud-api/cloud.events.js";
+ import type { MetaWebhookPayload } from "./channels/cloud-api/cloud.events.js";
++
++const CLOUD_API_ENABLED = (process.env.DISABLE_CLOUD_API ?? "1") === "0";
+ import { logger } from "./utils/logger.js";
+ 
+ const CLOUD_WEBHOOK_PATH = "/cloud-webhook";
+@@ -183,8 +188,8 @@ async function startHttp(): Promise<void> {
+       return;
+     }
+ 
+-    // Cloud API Webhook endpoint
+-    if (url.pathname === CLOUD_WEBHOOK_PATH) {
++    // Cloud API Webhook endpoint — guarded by DISABLE_CLOUD_API (default disabled)
++    if (CLOUD_API_ENABLED && url.pathname === CLOUD_WEBHOOK_PATH) {
+       // GET — Meta webhook verification (hub.challenge)
+       if (req.method === "GET") {
+         const mode = url.searchParams.get("hub.mode");
+-- 
+2.53.0
+
