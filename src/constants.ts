@@ -9,9 +9,6 @@ export const SERVER_NAME = "wa-mcp";
 export const DEFAULT_TRANSPORT = "http" as const;
 export const DEFAULT_PORT = 3000;
 
-// Redis
-export const DEFAULT_REDIS_URL = "redis://localhost:6379";
-
 // Logging
 export const DEFAULT_LOG_LEVEL = "info";
 
