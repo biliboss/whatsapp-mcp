@@ -17,9 +17,14 @@ import { InstanceManager } from "./services/instance-manager.js";
 import { MessageQueue } from "./services/message-queue.js";
 import { MaintenanceService } from "./services/maintenance.js";
 import { createMcpServer } from "./server/mcp.js";
+// Patch 08: Cloud API channel — guarded by DISABLE_CLOUD_API env (default "1" = disabled)
+// Cloud API module is kept in tree but all webhook routing is skipped when disabled.
+// This eliminates graph.facebook.com egress at runtime. Set DISABLE_CLOUD_API=0 to re-enable.
 import { verifyWebhookSignature } from "./channels/cloud-api/cloud.auth.js";
 import { normalizeWebhookPayload } from "./channels/cloud-api/cloud.events.js";
 import type { MetaWebhookPayload } from "./channels/cloud-api/cloud.events.js";
+
+const CLOUD_API_ENABLED = (process.env.DISABLE_CLOUD_API ?? "1") === "0";
 import { logger } from "./utils/logger.js";
 
 const CLOUD_WEBHOOK_PATH = "/cloud-webhook";
@@ -183,8 +188,8 @@ async function startHttp(): Promise<void> {
       return;
     }
 
-    // Cloud API Webhook endpoint
-    if (url.pathname === CLOUD_WEBHOOK_PATH) {
+    // Cloud API Webhook endpoint — guarded by DISABLE_CLOUD_API (default disabled)
+    if (CLOUD_API_ENABLED && url.pathname === CLOUD_WEBHOOK_PATH) {
       // GET — Meta webhook verification (hub.challenge)
       if (req.method === "GET") {
         const mode = url.searchParams.get("hub.mode");
