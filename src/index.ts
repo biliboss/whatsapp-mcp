@@ -264,10 +264,13 @@ async function startHttp(): Promise<void> {
     res.end(JSON.stringify({ error: "Not found" }));
   });
 
-  httpServer.listen(port, () => {
+  // Patch 06: bind to 127.0.0.1 (loopback) not 0.0.0.0 — defense-in-depth
+  // WA_MCP_HOST env override allowed (e.g. 0.0.0.0 for local dev), default loopback.
+  const host = process.env.WA_MCP_HOST ?? "127.0.0.1";
+  httpServer.listen(port, host, () => {
     logger.info(
-      { port, transport: "http", version: VERSION },
-      `${SERVER_NAME} started on port ${port}`,
+      { port, host, transport: "http", version: VERSION },
+      `${SERVER_NAME} started on ${host}:${port}`,
     );
   });
 }
