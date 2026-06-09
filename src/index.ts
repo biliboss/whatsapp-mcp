@@ -272,6 +272,13 @@ async function startHttp(): Promise<void> {
   // Patch 06: bind to 127.0.0.1 (loopback) not 0.0.0.0 — defense-in-depth
   // WA_MCP_HOST env override allowed (e.g. 0.0.0.0 for local dev), default loopback.
   const host = process.env.WA_MCP_HOST ?? "127.0.0.1";
+  // Patch 06b — hard-assert host is loopback. Defense-in-depth: even if env or deploy.yml
+  // is misconfigured, we refuse to bind to a public interface. WhatsApp session DB =
+  // catastrophic on leak. SSH tunnel access only.
+  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
+    console.error(`FATAL: WA_MCP_HOST=${host} not allowed. Must be loopback (127.0.0.1 / localhost / ::1).`);
+    process.exit(1);
+  }
   httpServer.listen(port, host, () => {
     logger.info(
       { port, host, transport: "http", version: VERSION },

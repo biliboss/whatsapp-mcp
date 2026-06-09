@@ -1,0 +1,18 @@
+src/index.ts | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+--- Changes ---
+
+src/index.ts
+  @@ -272,6 +272,13 @@ async function startHttp(): Promise<void> {
+  +  // Patch 06b — hard-assert host is loopback. Defense-in-depth: even if env or deploy.yml
+  +  // is misconfigured, we refuse to bind to a public interface. WhatsApp session DB =
+  +  // catastrophic on leak. SSH tunnel access only.
+  +  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
+  +    console.error(`FATAL: WA_MCP_HOST=${host} not allowed. Must be loopback (127.0.0.1 / localhost / ::1).`);
+  +    process.exit(1);
+  +  }
+     httpServer.listen(port, host, () => {
+       logger.info(
+         { port, host, transport: "http", version: VERSION },
+  +7 -0
