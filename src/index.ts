@@ -38,7 +38,10 @@ function verifyApiKey(provided: string, expected: string): boolean {
 /** Check API key from request headers. Returns true if valid, or no key is configured. */
 function checkApiKey(req: IncomingMessage, res: ServerResponse): boolean {
   const apiKey = process.env.WA_MCP_API_KEY;
-  if (!apiKey) return true; // No key configured, allow
+  if (!apiKey) {
+    logger.fatal("WA_MCP_API_KEY is not set — refusing to start in open mode. Set a strong API key.");
+    process.exit(1);
+  }
 
   const authHeader = req.headers.authorization;
   const apiKeyHeader = req.headers["x-api-key"] as string | undefined;
@@ -276,6 +279,12 @@ async function startStdio(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // Patch 01: fail-closed — require WA_MCP_API_KEY at startup
+  if (!process.env.WA_MCP_API_KEY && transport !== "stdio") {
+    logger.fatal("WA_MCP_API_KEY environment variable is required. Refusing to start without it.");
+    process.exit(1);
+  }
+
   logger.info({ transport, version: VERSION }, "Starting WA MCP server");
 
   if (transport === "stdio") {
