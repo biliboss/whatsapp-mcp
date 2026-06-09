@@ -14,7 +14,11 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY package.json ./
 
-RUN mkdir -p /app/data/sessions /app/data/media
+# Patch 02: non-root — create data dirs owned by node (UID 1001)
+RUN mkdir -p /app/data/sessions /app/data/media && \
+    chown -R node:node /app/data
+
+USER node
 
 EXPOSE 3000 3001
 
