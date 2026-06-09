@@ -1,6 +1,8 @@
 import "dotenv/config";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
+// Patch 03: AES-GCM session encryption
+import { initEncryption } from "./utils/crypto.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -283,6 +285,17 @@ async function main(): Promise<void> {
   if (!process.env.WA_MCP_API_KEY && transport !== "stdio") {
     logger.fatal("WA_MCP_API_KEY environment variable is required. Refusing to start without it.");
     process.exit(1);
+  }
+
+  // Patch 03: initialize AES-GCM encryption for session keys at rest
+  const encKey = process.env.SESSION_ENCRYPTION_KEY;
+  if (encKey) {
+    const enabled = initEncryption(encKey);
+    if (enabled) {
+      logger.info("AES-256-GCM field encryption enabled for session keys");
+    }
+  } else {
+    logger.warn("SESSION_ENCRYPTION_KEY not set — session keys stored in plaintext. Set it before first pair.");
   }
 
   logger.info({ transport, version: VERSION }, "Starting WA MCP server");

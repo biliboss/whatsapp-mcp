@@ -14,6 +14,8 @@ import { initAuthCreds, BufferJSON } from "@whiskeysockets/baileys";
 import { eq, and } from "drizzle-orm";
 import { db } from "../../db/client.js";
 import { authKeys } from "../../db/schema.js";
+// Patch 03: AES-GCM field-level encryption for Signal protocol keys at rest
+import { encrypt, decrypt } from "../../utils/crypto.js";
 
 const CREDS_KEY = "creds";
 
@@ -32,15 +34,19 @@ export async function useSqliteAuthState(
       .from(authKeys)
       .where(and(eq(authKeys.instanceId, instanceId), eq(authKeys.keyId, key)))
       .get();
-    return row?.keyData ?? null;
+    if (!row?.keyData) return null;
+    // Patch 03: decrypt on read (no-op if encryption not enabled or value unencrypted)
+    return decrypt(row.keyData);
   };
 
   const writeData = async (key: string, data: string): Promise<void> => {
+    // Patch 03: encrypt on write when SESSION_ENCRYPTION_KEY is set
+    const storedData = encrypt(data);
     db.insert(authKeys)
-      .values({ instanceId, keyId: key, keyData: data })
+      .values({ instanceId, keyId: key, keyData: storedData })
       .onConflictDoUpdate({
         target: [authKeys.instanceId, authKeys.keyId],
-        set: { keyData: data },
+        set: { keyData: storedData },
       })
       .run();
   };
