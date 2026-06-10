@@ -1,0 +1,12 @@
+src/channels/channel.interface.ts | 1 +
+ 1 file changed, 1 insertion(+)
+
+--- Changes ---
+
+src/channels/channel.interface.ts
+  @@ -73,6 +73,7 @@ export interface ChannelAdapter {
+  +  listGroups(): Promise<GroupMetadata[]>;
+     getGroupInviteCode(groupId: string): Promise<string>;
+     joinGroup(inviteCode: string): Promise<string>;
+     handleJoinRequest(
+  +1 -0

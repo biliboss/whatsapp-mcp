@@ -476,6 +476,10 @@ export class CloudApiAdapter implements ChannelAdapter {
     throw new Error("Group management is not supported on Cloud API");
   }
 
+  async listGroups(): Promise<GroupMetadata[]> {
+    throw new Error("Group management is not supported on Cloud API");
+  }
+
   async getGroupInviteCode(_groupId: string): Promise<string> {
     throw new Error("Group management is not supported on Cloud API");
   }

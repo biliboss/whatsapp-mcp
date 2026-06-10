@@ -23,7 +23,12 @@ import {
   JoinGroupSchema,
   ToggleEphemeralSchema,
   HandleJoinRequestSchema,
+  ListGroupsSchema,
+  GetGroupMetadataSchema,
 } from "../schemas/group.schema.js";
+import type { GroupMetadata } from "../types/channel.types.js";
+import { db } from "../db/client.js";
+import { groupsCache } from "../db/schema.js";
 
 export function registerGroupTools(
   server: McpServer,
@@ -305,4 +310,92 @@ export function registerGroupTools(
       }
     },
   );
+
+  server.tool(
+    "wa_list_groups",
+    "List all WhatsApp groups the instance is participating in. Returns subject, participant count, owner, isAnnounce. Use to find a group by name (filter subject client-side).",
+    ListGroupsSchema.shape,
+    async (params) => {
+      const log = createRequestLogger("wa_list_groups", params.instanceId);
+      const start = Date.now();
+      try {
+        const adapter = instanceManager.getAdapter(params.instanceId);
+        const groups = await adapter.listGroups();
+        // Best-effort cache write — failure shouldn't block tool response
+        try {
+          upsertGroupsCache(params.instanceId, groups);
+        } catch (cacheErr) {
+          log.warn({ err: cacheErr }, "groups_cache upsert failed (non-fatal)");
+        }
+        log.info({ duration: Date.now() - start, count: groups.length }, "groups listed");
+        return toolSuccess({
+          count: groups.length,
+          groups: groups.map((g) => ({
+            jid: g.jid,
+            subject: g.subject,
+            participantCount: g.participantCount,
+            owner: g.ownerJid,
+            isAnnounce: g.isAnnounce,
+          })),
+        });
+      } catch (err) {
+        return handleToolError("wa_list_groups", err, params.instanceId);
+      }
+    },
+  );
+
+  server.tool(
+    "wa_group_metadata",
+    "Get full metadata for a specific group: subject, description, all participants (jid + admin role), settings, invite code.",
+    GetGroupMetadataSchema.shape,
+    async (params) => {
+      const log = createRequestLogger("wa_group_metadata", params.instanceId);
+      const start = Date.now();
+      try {
+        const adapter = instanceManager.getAdapter(params.instanceId);
+        const meta = await adapter.getGroupMetadata(params.jid);
+        log.info({ duration: Date.now() - start }, "group metadata fetched");
+        return toolSuccess(meta);
+      } catch (err) {
+        return handleToolError("wa_group_metadata", err, params.instanceId);
+      }
+    },
+  );
+}
+
+function upsertGroupsCache(instanceId: string, groups: GroupMetadata[]): void {
+  const now = Date.now();
+  for (const g of groups) {
+    db.insert(groupsCache)
+      .values({
+        instanceId,
+        jid: g.jid,
+        subject: g.subject ?? null,
+        description: g.description ?? null,
+        ownerJid: g.ownerJid ?? null,
+        participants: JSON.stringify(g.participants ?? []),
+        participantCount: g.participantCount,
+        isAnnounce: g.isAnnounce ? 1 : 0,
+        isLocked: g.isLocked ? 1 : 0,
+        ephemeralDuration: g.ephemeralDuration ?? null,
+        inviteCode: null,
+        createdAt: g.createdAt ?? null,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [groupsCache.instanceId, groupsCache.jid],
+        set: {
+          subject: g.subject ?? null,
+          description: g.description ?? null,
+          ownerJid: g.ownerJid ?? null,
+          participants: JSON.stringify(g.participants ?? []),
+          participantCount: g.participantCount,
+          isAnnounce: g.isAnnounce ? 1 : 0,
+          isLocked: g.isLocked ? 1 : 0,
+          ephemeralDuration: g.ephemeralDuration ?? null,
+          updatedAt: now,
+        },
+      })
+      .run();
+  }
 }

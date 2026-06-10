@@ -529,6 +529,28 @@ export class BaileysAdapter implements ChannelAdapter {
     };
   }
 
+  async listGroups(): Promise<GroupMetadata[]> {
+    const sock = this.getSock();
+    const raw = await sock.groupFetchAllParticipating();
+    return Object.values(raw).map((meta) => ({
+      jid: meta.id,
+      subject: meta.subject,
+      description: meta.desc ?? null,
+      ownerJid: meta.owner ?? null,
+      participants: meta.participants.map((p) => ({
+        jid: p.id,
+        isAdmin: p.admin === "admin" || p.admin === "superadmin",
+        isSuperAdmin: p.admin === "superadmin",
+      })),
+      participantCount: meta.participants.length,
+      isAnnounce: meta.announce ?? false,
+      isLocked: meta.restrict ?? false,
+      ephemeralDuration: meta.ephemeralDuration ?? null,
+      inviteCode: null,
+      createdAt: meta.creation ?? null,
+    }));
+  }
+
   async getGroupInviteCode(groupId: string): Promise<string> {
     const sock = this.getSock();
     const code = await sock.groupInviteCode(this.normalizeJid(groupId));

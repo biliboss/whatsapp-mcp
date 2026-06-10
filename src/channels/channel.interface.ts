@@ -73,6 +73,7 @@ export interface ChannelAdapter {
     action: ParticipantAction,
   ): Promise<void>;
   getGroupMetadata(groupId: string): Promise<GroupMetadata>;
+  listGroups(): Promise<GroupMetadata[]>;
   getGroupInviteCode(groupId: string): Promise<string>;
   joinGroup(inviteCode: string): Promise<string>;
   handleJoinRequest(

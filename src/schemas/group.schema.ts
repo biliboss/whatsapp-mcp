@@ -126,3 +126,16 @@ export const HandleJoinRequestSchema = z
     action: z.enum(["approve", "reject"]).describe("Whether to approve or reject the join request"),
   })
   .strict();
+
+export const ListGroupsSchema = z
+  .object({
+    instanceId: z.string().min(1).describe("The instance ID"),
+  })
+  .strict();
+
+export const GetGroupMetadataSchema = z
+  .object({
+    instanceId: z.string().min(1).describe("The instance ID"),
+    jid: z.string().min(5).describe("Group JID (e.g. 120363...@g.us)"),
+  })
+  .strict();
